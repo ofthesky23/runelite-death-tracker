@@ -1,7 +1,6 @@
 package com.deathtracker;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import java.io.IOException;
 import java.io.Reader;
@@ -20,9 +19,14 @@ import net.runelite.client.RuneLite;
 final class DeathStore
 {
     private static final Type RECORDS_TYPE = new TypeToken<List<DeathRecord>>() {}.getType();
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    private final Gson gson;
     private Path directory;
     private final List<DeathRecord> records = new ArrayList<>();
+
+    DeathStore(Gson gson)
+    {
+        this.gson = gson;
+    }
 
     synchronized void open(String player) throws IOException
     {

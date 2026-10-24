@@ -1,5 +1,6 @@
 package com.deathtracker;
 
+import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -51,8 +52,9 @@ public class DeathTrackerPlugin extends Plugin
     @Inject private ItemManager itemManager;
     @Inject private DrawManager drawManager;
     @Inject private DeathTrackerConfig config;
+    @Inject private Gson gson;
 
-    private final DeathStore store = new DeathStore();
+    private DeathStore store;
     private ExecutorService imageWriter;
     private DeathTrackerPanel panel;
     private NavigationButton navigation;
@@ -74,6 +76,7 @@ public class DeathTrackerPlugin extends Plugin
     @Override
     protected void startUp()
     {
+        store = new DeathStore(gson);
         imageWriter = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "death-tracker-image-writer");
             thread.setDaemon(true);
