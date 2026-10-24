@@ -1,40 +1,44 @@
 package com.deathtracker;
 
 import java.awt.BorderLayout;
-import java.awt.Desktop;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Executor;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.util.Filepath;
 
 final class DeathTrackerPanel extends PluginPanel
 {
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("MMM d, yyyy  h:mm a");
     private final DeathStore store;
+    private final Executor executor;
 
-    DeathTrackerPanel(DeathStore store)
+    DeathTrackerPanel(DeathStore store, Executor executor)
     {
         this.store = store;
+        this.executor = executor;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         refresh();
     }
@@ -68,8 +72,10 @@ final class DeathTrackerPanel extends PluginPanel
         actions.setBackground(ColorScheme.DARK_GRAY_COLOR);
         JButton export = new JButton("Export CSV");
         export.addActionListener(e -> exportCsv(records));
-        JButton folder = new JButton("Open data folder");
-        folder.addActionListener(e -> open(store.directory()));
+        JButton folder = new JButton("Data location");
+        folder.addActionListener(e -> showDataLocation());
+        export.setEnabled(store.directory() != null);
+        folder.setEnabled(store.directory() != null);
         actions.add(export);
         actions.add(folder);
         add(actions);
@@ -146,8 +152,8 @@ final class DeathTrackerPanel extends PluginPanel
         buttons.add(actual);
         if (record.screenshot != null)
         {
-            JButton shot = new JButton("Open screenshot");
-            shot.addActionListener(e -> open(store.imagePath(record)));
+            JButton shot = new JButton("View screenshot");
+            shot.addActionListener(e -> showScreenshot(record, shot));
             buttons.add(shot);
         }
         detail.add(buttons);
@@ -267,25 +273,55 @@ final class DeathTrackerPanel extends PluginPanel
         return amount == null ? "" : Long.toString(amount);
     }
 
-    private void open(Path path)
+    private void showDataLocation()
     {
-        try
+        Filepath directory = store.directory();
+        if (directory != null)
         {
-            if (path == null || !Files.exists(path) || !Desktop.isDesktopSupported())
+            JTextArea location = new JTextArea(directory.toString(), 3, 40);
+            location.setEditable(false);
+            location.setLineWrap(true);
+            location.setWrapStyleWord(true);
+            JOptionPane.showMessageDialog(this, location, "Death Tracker data location", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    private void showScreenshot(DeathRecord record, JButton button)
+    {
+        Filepath path = store.imagePath(record);
+        button.setEnabled(false);
+        executor.execute(() -> {
+            try
             {
-                throw new IOException("File is not available yet");
+                BufferedImage image = DeathScreenshot.read(path);
+                SwingUtilities.invokeLater(() -> {
+                    button.setEnabled(true);
+                    if (!button.isShowing())
+                    {
+                        return;
+                    }
+                    JScrollPane preview = new JScrollPane(new JLabel(new ImageIcon(image)));
+                    preview.setPreferredSize(new Dimension(Math.min(image.getWidth() + 24, 900),
+                        Math.min(image.getHeight() + 24, 600)));
+                    JOptionPane.showMessageDialog(this, preview, "Death screenshot", JOptionPane.PLAIN_MESSAGE);
+                });
             }
-            Desktop.getDesktop().open(path.toFile());
-        }
-        catch (IOException ex)
-        {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), "Open failed", JOptionPane.ERROR_MESSAGE);
-        }
+            catch (IOException ex)
+            {
+                SwingUtilities.invokeLater(() -> {
+                    button.setEnabled(true);
+                    if (button.isShowing())
+                    {
+                        JOptionPane.showMessageDialog(this, ex.getMessage(), "Screenshot unavailable", JOptionPane.ERROR_MESSAGE);
+                    }
+                });
+            }
+        });
     }
 
     private void exportCsv(List<DeathRecord> records)
     {
-        Path directory = store.directory();
+        Filepath directory = store.directory();
         if (directory == null)
         {
             return;
@@ -305,10 +341,10 @@ final class DeathTrackerPanel extends PluginPanel
             }
             csv.append('\n');
         }
-        Path target = directory.resolve("deaths.csv");
+        Filepath target = directory.joinSegment("deaths.csv");
         try
         {
-            Files.write(target, csv.toString().getBytes(StandardCharsets.UTF_8));
+            target.write(csv.toString());
             JOptionPane.showMessageDialog(this, "Exported to " + target);
         }
         catch (IOException ex)

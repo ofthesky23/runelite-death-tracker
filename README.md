@@ -6,7 +6,7 @@ A local RuneLite sidebar journal for Old School RuneScape deaths.
 
 - Each local-player death, with time, world, tile, region, instance flag, recent combat opponent, skull and Protect Item state.
 - The last complete equipment and inventory snapshots before death, including quantities and item prices at capture time.
-- A PNG of the next rendered game frame after death (enabled by default).
+- A PNG of the next rendered game frame after death (enabled by default), viewable inside the plugin with **View screenshot**.
 - Carried item value and an **estimated standard PvM gravestone fee**.
 - Actual reclaim fee, unrecovered item value, other costs, reclaim method, and notes. Enter these in **Record actual cost** after reclaiming. Explicit in-game chat messages such as “You paid 42,000 coins to reclaim your items…” also fill the reclaim fee automatically.
 - A collapsed, expandable death list, lifetime sum of recorded actual costs, and CSV export.
@@ -17,7 +17,9 @@ The estimated fee uses current RuneLite item prices and the standard gravestone 
 
 ## Data
 
-Data stays on your computer under `~/.runelite/plugin-data/death-tracker/<character>/`. `deaths.json` is the journal, PNGs are screenshots, and **Export CSV** writes `deaths.csv`. The plugin does not upload data.
+Data stays on your computer under `~/.runelite/plugin-data/death-tracker/<character>/`. `deaths.json` is the journal, PNGs are screenshots, and **Export CSV** writes `deaths.csv`. **Data location** shows a selectable path you can copy into your file manager. The plugin does not upload data.
+
+File access uses RuneLite's `Filepath` API, rooted at the plugin's data directory. Existing journals and screenshots use the same paths and JSON format. Screenshots are displayed in a Swing viewer without launching an external application.
 
 ## Use it locally now
 

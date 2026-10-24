@@ -4,17 +4,13 @@ import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.Color;
 import java.awt.Graphics2D;
-import java.awt.Image;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import javax.imageio.ImageIO;
+import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
@@ -41,10 +37,11 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.DrawManager;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.util.Filepath;
 import net.runelite.client.util.Text;
 
 @Slf4j
-@PluginDescriptor(name = "Death Tracker", description = "Records local deaths, gear, inventory, screenshots, and costs", tags = {"death", "grave", "cost"})
+@PluginDescriptor(name = "Death Tracker", internalName = "death-tracker", description = "Records local deaths, gear, inventory, screenshots, and costs", tags = {"death", "grave", "cost"})
 public class DeathTrackerPlugin extends Plugin
 {
     @Inject private Client client;
@@ -53,9 +50,9 @@ public class DeathTrackerPlugin extends Plugin
     @Inject private DrawManager drawManager;
     @Inject private DeathTrackerConfig config;
     @Inject private Gson gson;
+    @Inject private ScheduledExecutorService executor;
 
     private DeathStore store;
-    private ExecutorService imageWriter;
     private DeathTrackerPanel panel;
     private NavigationButton navigation;
     private String currentPlayer;
@@ -74,28 +71,19 @@ public class DeathTrackerPlugin extends Plugin
     }
 
     @Override
-    protected void startUp()
+    protected void startUp() throws IOException
     {
-        store = new DeathStore(gson);
-        imageWriter = Executors.newSingleThreadExecutor(r -> {
-            Thread thread = new Thread(r, "death-tracker-image-writer");
-            thread.setDaemon(true);
-            return thread;
-        });
-        panel = new DeathTrackerPanel(store);
+        store = new DeathStore(gson, getPluginDirectory());
+        panel = new DeathTrackerPanel(store, executor);
         navigation = NavigationButton.builder().tooltip("Death Tracker").icon(icon()).priority(7).panel(panel).build();
         toolbar.addNavigation(navigation);
-        if (client.getGameState() == GameState.LOGGED_IN)
-        {
-            initializeCharacter();
-        }
+        // The next game tick initializes the character on the client thread.
     }
 
     @Override
     protected void shutDown()
     {
         toolbar.removeNavigation(navigation);
-        imageWriter.shutdown();
         store.close();
         currentPlayer = null;
         lastEquipment = null;
@@ -231,14 +219,17 @@ public class DeathTrackerPlugin extends Plugin
             SwingUtilities.invokeLater(() -> panel.refresh());
             if (config.screenshot())
             {
-                Path path = store.imagePath(death);
-                ExecutorService writer = imageWriter;
-                drawManager.requestNextFrameListener(image -> {
-                    if (!writer.isShutdown())
+                Filepath path = store.imagePath(death);
+                drawManager.requestNextFrameListener(image -> executor.execute(() -> {
+                    try
                     {
-                        writer.submit(() -> saveImage(image, path));
+                        DeathScreenshot.save(image, path);
                     }
-                });
+                    catch (IOException ex)
+                    {
+                        log.error("Unable to save death screenshot", ex);
+                    }
+                }));
             }
         }
         catch (IOException ex)
@@ -326,22 +317,6 @@ public class DeathTrackerPlugin extends Plugin
             sum += item.value();
         }
         return sum;
-    }
-
-    private static void saveImage(Image image, Path path)
-    {
-        try
-        {
-            BufferedImage copy = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_RGB);
-            Graphics2D graphics = copy.createGraphics();
-            graphics.drawImage(image, 0, 0, null);
-            graphics.dispose();
-            ImageIO.write(copy, "png", path.toFile());
-        }
-        catch (IOException ex)
-        {
-            log.error("Unable to save death screenshot", ex);
-        }
     }
 
     private static BufferedImage icon()

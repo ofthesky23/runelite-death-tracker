@@ -1,31 +1,27 @@
 package com.deathtracker;
 
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
-import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import net.runelite.client.RuneLite;
+import net.runelite.client.util.Filepath;
 
 /** Local, per-character JSON storage. Screenshots live in the same directory. */
 final class DeathStore
 {
-    private static final Type RECORDS_TYPE = new TypeToken<List<DeathRecord>>() {}.getType();
     private final Gson gson;
-    private Path directory;
+    private final Filepath root;
+    private Filepath directory;
     private final List<DeathRecord> records = new ArrayList<>();
 
-    DeathStore(Gson gson)
+    DeathStore(Gson gson, Filepath root)
     {
         this.gson = gson;
+        this.root = root;
     }
 
     synchronized void open(String player) throws IOException
@@ -35,21 +31,24 @@ final class DeathStore
         {
             safe = "unknown";
         }
-        directory = RuneLite.PLUGIN_DATA.resolve("death-tracker").resolve(safe.toLowerCase(java.util.Locale.ROOT));
-        Files.createDirectories(directory);
-        records.clear();
-        Path journal = directory.resolve("deaths.json");
-        if (Files.exists(journal))
+        Filepath nextDirectory = root.joinSegment(safe.toLowerCase(java.util.Locale.ROOT)).rooted();
+        nextDirectory.createDirectories();
+        List<DeathRecord> nextRecords = new ArrayList<>();
+        Filepath journal = nextDirectory.joinSegment("deaths.json");
+        if (journal.exists())
         {
-            try (Reader reader = Files.newBufferedReader(journal, StandardCharsets.UTF_8))
+            try (Reader reader = journal.openBufferedReader())
             {
-                List<DeathRecord> loaded = gson.fromJson(reader, RECORDS_TYPE);
+                DeathRecord[] loaded = gson.fromJson(reader, DeathRecord[].class);
                 if (loaded != null)
                 {
-                    records.addAll(loaded);
+                    Collections.addAll(nextRecords, loaded);
                 }
             }
         }
+        directory = nextDirectory;
+        records.clear();
+        records.addAll(nextRecords);
     }
 
     synchronized void close()
@@ -70,19 +69,19 @@ final class DeathStore
         {
             return;
         }
-        Path journal = directory.resolve("deaths.json");
-        Path pending = directory.resolve("deaths.json.tmp");
-        try (Writer writer = Files.newBufferedWriter(pending, StandardCharsets.UTF_8))
+        Filepath journal = directory.joinSegment("deaths.json");
+        Filepath pending = directory.joinSegment("deaths.json.tmp");
+        try (Writer writer = pending.openBufferedWriter())
         {
-            gson.toJson(records, RECORDS_TYPE, writer);
+            gson.toJson(records.toArray(new DeathRecord[0]), DeathRecord[].class, writer);
         }
         try
         {
-            Files.move(pending, journal, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            pending.moveTo(journal, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         }
         catch (java.nio.file.AtomicMoveNotSupportedException ex)
         {
-            Files.move(pending, journal, StandardCopyOption.REPLACE_EXISTING);
+            pending.moveTo(journal, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -91,12 +90,12 @@ final class DeathStore
         return Collections.unmodifiableList(new ArrayList<>(records));
     }
 
-    synchronized Path imagePath(DeathRecord record)
+    synchronized Filepath imagePath(DeathRecord record)
     {
-        return directory.resolve(record.id + ".png");
+        return directory == null ? null : directory.joinSegment(record.id + ".png");
     }
 
-    synchronized Path directory()
+    synchronized Filepath directory()
     {
         return directory;
     }
